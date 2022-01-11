@@ -10,6 +10,14 @@ Contracts used by https://oasis.cash/
 ```Transaction: 0xfeb079da51da8e52d7243506b4d89da36f7987881ac5be7a8f2530499dd616df```
 ### https://www.smartscan.cash/transaction/0xfeb079da51da8e52d7243506b4d89da36f7987881ac5be7a8f2530499dd616df
 
+## NFTEX exchange V2 contract (NFTEXV2.sol)
+```Address:      0x3b968177551a2aD9fc3eA06F2F41d88b22a081F7```
+### https://www.smartscan.cash/address/0x3b968177551a2aD9fc3eA06F2F41d88b22a081F7
+
+
+```Transaction: 0x2ce52b0e76071d404e0d71ded586bb301939b6f59b714ca4ae1499dd4667f229```
+### https://www.smartscan.cash/transaction/0x2ce52b0e76071d404e0d71ded586bb301939b6f59b714ca4ae1499dd4667f229
+
 ## CashCats NFT (OasisNFT.sol)
 ```Address: 0xE765026Cad648785b080E78700cBF6fa1C050d7C```
 ### https://www.smartscan.cash/address/0xE765026Cad648785b080E78700cBF6fa1C050d7C

@@ -9,7 +9,7 @@ import "@openzeppelin/contracts/access/Ownable.sol";
 //https://github.com/TheGreatHB/NFTEX/blob/main/contracts/NFTEX.sol
 
 
-contract NFTEX is ERC721Holder, Ownable {
+contract NFTEXV2 is ERC721Holder, Ownable {
 
   struct Order {
     uint8 orderType;  //0:Fixed Price, 1:Dutch Auction, 2:English Auction
@@ -23,6 +23,7 @@ contract NFTEX is ERC721Holder, Ownable {
     uint256 lastBidPrice;
     address lastBidder;
     bool isSold;
+    bool isCancelled;
   }
 
   mapping (IERC721 => mapping (uint256 => bytes32[])) public orderIdByToken;
@@ -32,11 +33,10 @@ contract NFTEX is ERC721Holder, Ownable {
   address public feeAddress;
   uint16 public feePercent;
 
-  event MakeOrder(IERC721 indexed token, uint256 id, bytes32 indexed hash, address seller);
-  event CancelOrder(IERC721 indexed token, uint256 id, bytes32 indexed hash, address seller);
-  event Bid(IERC721 indexed token, uint256 id, bytes32 indexed hash, address bidder, uint256 bidPrice);
-  event Claim(IERC721 indexed token, uint256 id, bytes32 indexed hash, address seller, address taker, uint256 price);
-
+  event MakeOrder(IERC721 indexed token, uint256 id, bytes32 indexed hash, address indexed seller);
+  event CancelOrder(IERC721 indexed token, uint256 id, bytes32 indexed hash, address indexed seller);
+  event Bid(IERC721 indexed token, uint256 id, bytes32 indexed hash, address indexed bidder, uint256 bidPrice);
+  event Claim(IERC721 indexed token, uint256 id, bytes32 indexed hash, address seller, address indexed taker, uint256 price);
 
   constructor(uint16 _feePercent) {
     require(_feePercent <= 10000, "Input value is more than 100%");
@@ -62,7 +62,7 @@ contract NFTEX is ERC721Holder, Ownable {
     }
   }
 
-  function tokenOrderLength(IERC721 _token, uint256 _id) external view returns (uint256) {
+  function tokenOrderLength(IERC721 _token, uint256 _id) public view returns (uint256) {
     return orderIdByToken[_token][_id].length;
   }
 
@@ -120,7 +120,7 @@ contract NFTEX is ERC721Holder, Ownable {
 
     //push
     bytes32 hash = _hash(_token, _id, msg.sender);
-    orderInfo[hash] = Order(_orderType, msg.sender, _token, _id, _startPrice, _endPrice, block.number, _endBlock, 0, address(0), false);
+    orderInfo[hash] = Order(_orderType, msg.sender, _token, _id, _startPrice, _endPrice, block.number, _endBlock, 0, address(0), false, false);
     orderIdByToken[_token][_id].push(hash);
     orderIdBySeller[msg.sender].push(hash);
 
@@ -151,7 +151,7 @@ contract NFTEX is ERC721Holder, Ownable {
     address lastBidder = o.lastBidder;
 
     require(o.orderType == 2, "only for English Auction");
-    require(endBlock != 0, "Canceled order");
+    require(o.isCancelled == false, "Canceled order");
     require(block.number <= endBlock, "Auction has ended");
     require(o.seller != msg.sender, "Can not bid on your own order");
 
@@ -169,7 +169,7 @@ contract NFTEX is ERC721Holder, Ownable {
     o.lastBidPrice = msg.value;
 
     if (lastBidPrice != 0) {
-      payable(lastBidder).send(lastBidPrice);
+      payable(lastBidder).transfer(lastBidPrice);
     }
 
     emit Bid(o.token, o.tokenId, _order, msg.sender, msg.value);
@@ -179,6 +179,7 @@ contract NFTEX is ERC721Holder, Ownable {
     Order storage o = orderInfo[_order];
     uint256 endBlock = o.endBlock;
     require(endBlock != 0, "Canceled order");
+    require(o.isCancelled == false, "Canceled order");
     require(endBlock > block.number, "Auction has ended");
     require(o.orderType < 2, "It's a English Auction");
     require(o.isSold == false, "Already sold");
@@ -189,10 +190,10 @@ contract NFTEX is ERC721Holder, Ownable {
     o.isSold = true;    //reentrancy proof
 
     uint256 fee = currentPrice * feePercent / 10000;
-    payable(o.seller).send(currentPrice - fee);
-    payable(feeAddress).send(fee);
+    payable(o.seller).transfer(currentPrice - fee);
+    payable(feeAddress).transfer(fee);
     if (msg.value > currentPrice) {
-      payable(msg.sender).send(msg.value - currentPrice);
+      payable(msg.sender).transfer(msg.value - currentPrice);
     }
 
     o.token.safeTransferFrom(address(this), msg.sender, o.tokenId);
@@ -207,7 +208,7 @@ contract NFTEX is ERC721Holder, Ownable {
     address seller = o.seller;
     address lastBidder = o.lastBidder;
     require(o.isSold == false, "Already sold");
-
+    require(o.isCancelled == false, "Already cancelled");
     require(seller == msg.sender || lastBidder == msg.sender, "Access denied");
     require(o.orderType == 2, "English Auction only");
     require(block.number > o.endBlock, "Auction has not ended");
@@ -220,8 +221,8 @@ contract NFTEX is ERC721Holder, Ownable {
 
     o.isSold = true;
 
-    payable(seller).send(lastBidPrice - fee);
-    payable(feeAddress).send(fee);
+    payable(seller).transfer(lastBidPrice - fee);
+    payable(feeAddress).transfer(fee);
     token.safeTransferFrom(address(this), lastBidder, tokenId);
 
     emit Claim(token, tokenId, _order, seller, lastBidder, lastBidPrice);
@@ -239,12 +240,13 @@ contract NFTEX is ERC721Holder, Ownable {
     require(o.seller == msg.sender, "Access denied");
     require(o.lastBidPrice == 0, "Bidding exist"); //for EA. but even in DA, FP, seller can withdraw his/her token with this fx.
     require(o.isSold == false, "Already sold");
-    require(endBlock != 0, "Canceled order");
+    require(o.isCancelled == false, "Already cancelled");
 
     IERC721 token = o.token;
     uint256 tokenId = o.tokenId;
 
-    o.endBlock = 0;   //0 endBlock means the order was canceled.
+    o.endBlock = 0;   //0 endBlock means the order was canceled. - retained for backwards compatibility
+    o.isCancelled = true;
 
     token.safeTransferFrom(address(this), msg.sender, tokenId);
     emit CancelOrder(token, tokenId, _order, msg.sender);
